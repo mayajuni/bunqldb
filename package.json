@@ -1,0 +1,48 @@
+{
+  "name": "bunqldb",
+  "version": "0.1.0",
+  "description": "Bun 네이티브 SQL 클라이언트 기반 MySQL/PostgreSQL 호환 데이터베이스 모듈",
+  "type": "module",
+  "main": "./src/index.ts",
+  "module": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "bun": "./src/index.ts",
+      "import": "./src/index.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md"
+  ],
+  "engines": {
+    "bun": ">=1.0.0"
+  },
+  "scripts": {
+    "test": "bun test",
+    "test:mysql": "bun --env-file=.env.test.mysql test",
+    "test:postgres": "bun --env-file=.env.test.postgres test",
+    "test:all": "bun run test:mysql && bun run test:postgres",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "bun",
+    "sql",
+    "database",
+    "mysql",
+    "postgresql",
+    "orm",
+    "transaction"
+  ],
+  "author": "",
+  "license": "MIT",
+  "peerDependencies": {
+    "bun-types": ">=1.0.0"
+  },
+  "devDependencies": {
+    "bun-types": "latest",
+    "typescript": "^5.0.0"
+  }
+}

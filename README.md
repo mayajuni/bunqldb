@@ -1,0 +1,468 @@
+# bunqldb
+
+Bun의 내장 SQL 클라이언트(`Bun.sql`)를 기반으로 한 **MySQL/PostgreSQL 호환** 데이터베이스 모듈입니다.
+**연결 풀링(Connection Pooling)**, **트랜잭션 관리(Transaction Management)**, **템플릿 리터럴 기반 동적 쿼리** 기능을 제공합니다.
+
+## 설치
+
+```bash
+bun add bunqldb
+```
+
+## 주요 특징
+
+- **MySQL/PostgreSQL 호환**: DATABASE_URL에서 DB 타입 자동 감지
+- **Lazy Initialization**: 첫 쿼리 실행 시점에 연결 (환경변수 설정 후 안전하게 사용 가능)
+- **AsyncLocalStorage 기반 트랜잭션**: `@Transactional` 데코레이터로 간편한 트랜잭션 관리
+- **템플릿 리터럴 재할당 방식**: 문자열+배열 대신 깔끔한 동적 쿼리 구성
+- **자동 camelCase 변환**: snake_case 컬럼을 camelCase로 자동 변환
+- **자동 재연결**: DB 서버 재기동 시 자동으로 재연결 시도
+
+---
+
+## 1. 설정 (Configuration)
+
+`.env` 파일에 다음 중 하나의 방식으로 설정을 추가하세요.
+
+### 방법 A: Connection String (추천)
+```bash
+# PostgreSQL
+DATABASE_URL=postgres://username:password@localhost:5432/mydb
+
+# MySQL
+DATABASE_URL=mysql://username:password@localhost:3306/mydb
+```
+
+### 방법 B: 개별 파라미터
+```bash
+DB_HOST=localhost
+DB_PORT=5432  # PostgreSQL: 5432, MySQL: 3306 (DATABASE_URL에서 자동 감지)
+DB_USER=username
+DB_PASSWORD=password
+DB_NAME=mydb
+```
+
+### DB 타입 확인
+```typescript
+import { getDbType } from "bunqldb";
+
+const dbType = getDbType(); // 'mysql' | 'postgres'
+```
+
+---
+
+## 2. 기본 사용법 (Basic Usage)
+
+```typescript
+import { sql, DB } from "bunqldb";
+
+// 1. 조회
+const users = await sql`SELECT * FROM users`;
+
+// 2. 파라미터 바인딩 (SQL Injection 방지)
+const id = 1;
+const user = await sql`SELECT * FROM users WHERE id = ${id}`;
+
+// 3. INSERT with RETURNING (PostgreSQL)
+const [newUser] = await sql`
+  INSERT INTO users (name, email) 
+  VALUES (${name}, ${email}) 
+  RETURNING id, name, email
+`;
+
+// 4. DB 헬퍼 사용 (camelCase 자동 변환)
+const users = await DB.many<User>(sql`SELECT * FROM users`);
+const user = await DB.maybeOne<User>(sql`SELECT * FROM users WHERE id = ${id}`);
+```
+
+---
+
+## 3. 템플릿 리터럴 재할당 방식 (핵심)
+
+**동적 쿼리를 구성할 때 문자열+배열 대신 템플릿 리터럴 재할당을 사용합니다.**
+
+### ✅ 올바른 방법 (템플릿 리터럴 재할당)
+
+```typescript
+import { sql, DB } from "bunqldb";
+
+// 기본 쿼리 시작
+let query = sql`SELECT * FROM users WHERE 1=1`;
+
+// 조건부 필터 추가
+if (status) {
+  query = sql`${query} AND status = ${status}`;
+}
+
+if (name) {
+  query = sql`${query} AND name LIKE ${`%${name}%`}`;
+}
+
+if (minAge) {
+  query = sql`${query} AND age >= ${minAge}`;
+}
+
+// ORDER BY, LIMIT 추가
+query = sql`${query} ORDER BY ${sql('created_at')} DESC`;
+query = sql`${query} LIMIT ${limit}`;
+
+// 실행
+const result = await DB.many<User>(query);
+```
+
+### ❌ 사용 금지 (문자열 + 배열 방식)
+
+```typescript
+// 가독성이 떨어지고 파라미터 인덱스 관리가 어려움
+// 또한 DB별 파라미터 문법이 다름 (PostgreSQL: $1, MySQL: ?)
+let query = 'SELECT * FROM users WHERE 1=1';
+const params: unknown[] = [];
+
+if (status) {
+  params.push(status);
+  query += ` AND status = $${params.length}`; // PostgreSQL 전용!
+}
+
+// 문자열 기반 raw SQL은 지원하지 않음 - 템플릿 리터럴 사용
+```
+
+### 장점
+
+1. **파라미터 자동 관리**: 인덱스(`$1`, `$2`) 신경 쓸 필요 없음
+2. **SQL Injection 자동 방지**: 템플릿 리터럴이 자동으로 파라미터화
+3. **가독성**: 실제 SQL과 거의 동일하게 읽힘
+4. **Bun SQL 공식 지원 패턴**: 공식 문서에서 권장하는 방식
+
+---
+
+## 4. DB 헬퍼 클래스
+
+### 기본 CRUD 메서드
+
+```typescript
+import { sql, DB } from "bunqldb";
+
+// 여러 행 조회 (camelCase 자동 변환)
+const users = await DB.many<User>(sql`SELECT * FROM users`);
+
+// 단일 행 조회 (없으면 undefined)
+const user = await DB.maybeOne<User>(sql`SELECT * FROM users WHERE seq = ${seq}`);
+
+// INSERT (생성된 ID 반환)
+// MySQL: lastInsertRowid 자동 반환 (RETURNING 불필요)
+const id = await DB.insert(sql`
+  INSERT INTO users (name, email) VALUES (${name}, ${email})
+`);
+
+// PostgreSQL: RETURNING 절 필요
+const id = await DB.insert(sql`
+  INSERT INTO users (name, email) VALUES (${name}, ${email})
+  RETURNING seq
+`);
+
+// UPDATE (영향받은 행 수 반환)
+// MySQL: affectedRows, PostgreSQL: count
+const count = await DB.update(sql`UPDATE users SET name = ${name} WHERE seq = ${seq}`);
+
+// DELETE (영향받은 행 수 반환)
+// MySQL: affectedRows, PostgreSQL: count
+const count = await DB.delete(sql`DELETE FROM users WHERE seq = ${seq}`);
+```
+
+### 페이징 메서드
+
+```typescript
+// offset 기반 페이징
+const result = await DB.paginate<User>(
+  sql`SELECT * FROM users WHERE status = ${'active'} ORDER BY seq DESC`,
+  { page: 1, row: 10 }
+);
+// 반환: { data: User[], totalRow: number }
+
+// row=0이면 전체 조회
+const all = await DB.paginate<User>(
+  sql`SELECT * FROM users ORDER BY seq`,
+  { page: 1, row: 0 }
+);
+
+// 커서 기반 페이징
+const result = await DB.cursorPaginate<User>(
+  sql`SELECT * FROM users WHERE status = ${'active'}`,
+  { cursorColumn: 'seq', cursor: null, limit: 10, isDesc: true }
+);
+// 반환: { data: User[], nextCursor: number | null }
+
+// 양방향 커서 페이징
+const result = await DB.bidirectionalCursorPaginate<User>(
+  sql`SELECT * FROM users WHERE 1=1`,
+  { cursorColumn: 'seq', cursor: null, limit: 10, direction: 'next' }
+);
+// 반환: { data: User[], nextCursor: number | null, prevCursor: number | null }
+```
+
+---
+
+## 5. SQL 조각 헬퍼
+
+```typescript
+import { sql } from "bunqldb";
+
+// 동적 테이블/컬럼명
+await sql`SELECT * FROM ${sql('users')}`;
+await sql`SELECT * FROM ${sql('public.users')}`;
+
+// 동적 ORDER BY (sql.unsafe는 신중하게!)
+const orderDir = 'DESC';
+query = sql`${query} ORDER BY ${sql('created_at')} ${sql.unsafe(orderDir)}`;
+
+// IN 절
+const ids = [1, 2, 3];
+await sql`SELECT * FROM users WHERE id IN ${sql(ids)}`;
+
+// 객체로 INSERT
+const user = { name: 'Alice', email: 'alice@test.com' };
+await sql`INSERT INTO users ${sql(user)}`;
+
+// 조건부 빈 조각
+import { empty } from "bunqldb";
+const ageFilter = minAge ? sql`AND age >= ${minAge}` : empty();
+await sql`SELECT * FROM users WHERE 1=1 ${ageFilter}`;
+```
+
+---
+
+## 6. 트랜잭션 (Transaction)
+
+### @Transactional 데코레이터 (권장)
+
+```typescript
+import { sql, Transactional } from "bunqldb";
+
+class UserService {
+  @Transactional()
+  static async transferMoney(fromId: number, toId: number, amount: number) {
+    // 이 안의 모든 DB 작업은 하나의 트랜잭션
+    await sql`UPDATE accounts SET balance = balance - ${amount} WHERE user_id = ${fromId}`;
+    await sql`UPDATE accounts SET balance = balance + ${amount} WHERE user_id = ${toId}`;
+    // 에러 발생 시 자동 롤백
+  }
+}
+```
+
+### 수동 트랜잭션 (sql.begin)
+
+```typescript
+import { getBaseSql, sql } from "bunqldb";
+
+const baseSql = getBaseSql();
+
+await baseSql.begin(async (tx) => {
+  await tx`INSERT INTO users (name) VALUES (${'Alice'})`;
+  await tx`INSERT INTO logs (action) VALUES (${'user_created'})`;
+  // 에러 발생 시 자동 롤백
+});
+```
+
+### Savepoint (부분 롤백)
+
+```typescript
+await baseSql.begin(async (tx) => {
+  await tx`INSERT INTO users (name) VALUES (${'Alice'})`;
+
+  try {
+    await tx.savepoint(async (sp) => {
+      await sp`INSERT INTO risky_table (data) VALUES (${'test'})`;
+      throw new Error('롤백 필요');
+    });
+  } catch {
+    // savepoint만 롤백, 외부 트랜잭션은 유지
+  }
+
+  // Alice는 커밋됨
+});
+```
+
+---
+
+## 7. SQL 로깅 설정
+
+```typescript
+import { setSqlLogging } from "bunqldb";
+import type { SqlLogger } from "bunqldb";
+
+// 기본 console 로거 사용
+setSqlLogging({ enabled: true });
+
+// 커스텀 로거 사용
+const myLogger: SqlLogger = {
+  info: (msg) => console.log('[SQL]', msg),
+  error: (msg) => console.error('[SQL ERROR]', msg),
+};
+
+setSqlLogging({ 
+  enabled: true, 
+  logger: myLogger 
+});
+
+// 로깅 비활성화
+setSqlLogging({ enabled: false });
+```
+
+---
+
+## 8. DAO 작성 예시
+
+```typescript
+// src/modules/user/dao/user.dao.ts
+import { sql, DB, getDbType } from 'bunqldb';
+import type { User, UserPagingDto, UserInsertDto } from '../type/user.type';
+
+export class UserDao {
+  static async findAll(dto: UserPagingDto) {
+    let query = sql`
+      SELECT seq, name, email, status, created_at
+      FROM users
+      WHERE is_delete = 'N'
+    `;
+
+    if (dto.keyword) {
+      query = sql`${query} AND name LIKE ${`%${dto.keyword}%`}`;
+    }
+
+    if (dto.status) {
+      query = sql`${query} AND status = ${dto.status}`;
+    }
+
+    query = sql`${query} ORDER BY seq DESC`;
+
+    return DB.paginate<User>(query, { page: dto.page, row: dto.row });
+  }
+
+  static async findOne(seq: number) {
+    return DB.maybeOne<User>(sql`
+      SELECT * FROM users WHERE seq = ${seq} AND is_delete = 'N'
+    `);
+  }
+
+  static async insert(dto: UserInsertDto) {
+    // MySQL: RETURNING 없이 사용
+    // PostgreSQL: RETURNING seq 추가 필요
+    return DB.insert(sql`
+      INSERT INTO users (name, email, insert_seq, insert_date)
+      VALUES (${dto.name}, ${dto.email}, ${dto.insertSeq}, NOW())
+      ${getDbType() === 'postgres' ? sql`RETURNING seq` : sql``}
+    `);
+  }
+
+  static async softDelete(seq: number, updateSeq: number) {
+    return DB.update(sql`
+      UPDATE users 
+      SET is_delete = 'Y', update_seq = ${updateSeq}, update_date = NOW()
+      WHERE seq = ${seq}
+    `);
+  }
+}
+```
+
+---
+
+## 9. 모듈 구조
+
+```
+bunqldb/
+  ├── src/
+  │   ├── index.ts          # Public API
+  │   ├── types.ts          # 공통 타입 (SqlLogger, SqlLoggingOptions)
+  │   ├── helpers/          # 헬퍼 유틸리티
+  │   │   ├── case-converter.ts
+  │   │   └── db-helpers.ts
+  │   └── internal/         # 내부 구현 (직접 import 금지)
+  │       ├── context.ts
+  │       ├── internal-db.ts
+  │       └── transactional.ts
+  └── test/                 # 테스트
+      ├── db-helpers.test.ts
+      └── transaction.test.ts
+```
+
+**중요**: `internal/` 폴더의 파일들은 직접 import하지 마세요. 항상 패키지 루트에서 import하세요.
+
+---
+
+## 10. 자동 재연결 (Auto Reconnect)
+
+Bun SQL은 내부적으로 연결 풀을 관리하며, PostgreSQL 서버가 재기동되거나 연결이 끊어지면 쿼리 실행 시 자동으로 재연결합니다.
+
+### 연결 상태 확인
+
+```typescript
+import { isDbConnected } from "bunqldb";
+
+if (!isDbConnected()) {
+  console.log("데이터베이스 연결이 끊어졌습니다.");
+}
+```
+
+### 자동 연결 관리
+
+별도의 재연결 로직이 필요하지 않습니다. Bun이 Lazy Connection 방식으로 쿼리 실행 시점에 자동으로 연결을 관리합니다.
+
+```typescript
+import { sql } from "bunqldb";
+
+// Bun이 자동으로 연결 관리
+const users = await sql`SELECT * FROM users`;
+```
+
+---
+
+## 11. MySQL/PostgreSQL 차이점
+
+| 기능 | MySQL | PostgreSQL |
+|------|-------|------------|
+| **INSERT ID 반환** | `lastInsertRowid` 자동 반환 | `RETURNING` 절 필요 |
+| **UPDATE 행 수** | `affectedRows` | `count` |
+| **DELETE 행 수** | `affectedRows` | `count` |
+| **AUTO_INCREMENT** | `AUTO_INCREMENT` | `SERIAL` / `IDENTITY` |
+| **TRUNCATE RESTART** | `TRUNCATE TABLE` | `TRUNCATE TABLE ... RESTART IDENTITY` |
+
+### DB 타입에 따른 분기 처리
+
+```typescript
+import { getDbType } from "bunqldb";
+
+const isMySQL = () => getDbType() === 'mysql';
+
+// INSERT 예시
+if (isMySQL()) {
+  // MySQL: RETURNING 없이 사용
+  const id = await DB.insert(sql`
+    INSERT INTO users (name) VALUES (${name})
+  `);
+} else {
+  // PostgreSQL: RETURNING 사용
+  const id = await DB.insert(sql`
+    INSERT INTO users (name) VALUES (${name})
+    RETURNING seq
+  `);
+}
+```
+
+---
+
+## 12. 테스트 실행
+
+```bash
+# DB 헬퍼 테스트
+bun test test/db-helpers.test.ts
+
+# 트랜잭션 테스트
+bun test test/transaction.test.ts
+
+# 전체 테스트
+bun test
+```
+
+## 라이선스
+
+MIT
