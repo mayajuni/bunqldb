@@ -1,6 +1,6 @@
 {
   "name": "bunqldb",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Bun 네이티브 SQL 클라이언트 기반 MySQL/PostgreSQL 호환 데이터베이스 모듈",
   "type": "module",
   "main": "./src/index.ts",
@@ -36,8 +36,16 @@
     "orm",
     "transaction"
   ],
-  "author": "",
+  "author": "mayajuni <mayajuni10@gmail.com>",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mayajuni/bunqldb.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mayajuni/bunqldb/issues"
+  },
+  "homepage": "https://github.com/mayajuni/bunqldb#readme",
   "peerDependencies": {
     "bun-types": ">=1.0.0"
   },
