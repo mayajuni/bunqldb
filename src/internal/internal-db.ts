@@ -1,12 +1,22 @@
-import { SQL } from 'bun';
-import { dbContextStorage, getDbContext, getTx, isSqlLoggingSkipped } from './context';
-import { consoleLogger, type SqlLogger, type SqlLoggingOptions } from '../types';
+import { SQL } from "bun";
+import {
+  dbContextStorage,
+  getDbContext,
+  getTx,
+  isSqlLoggingSkipped,
+} from "./context";
+import {
+  consoleLogger,
+  type DbConfig,
+  type SqlLogger,
+  type SqlLoggingOptions,
+} from "../types";
 
 // ============================================================
 // 타입 정의
 // ============================================================
 
-export type DbType = 'mysql' | 'postgres';
+export type DbType = "mysql" | "postgres";
 
 // ============================================================
 // 상태 및 설정
@@ -16,6 +26,7 @@ let baseSql: SQL | null = null;
 let detectedDbType: DbType | null = null;
 let sqlLoggingEnabled = false;
 let currentLogger: SqlLogger = consoleLogger;
+let dateStringsEnabled = false;
 
 // 연결 풀 설정
 const CONNECTION_POOL_CONFIG = {
@@ -34,24 +45,9 @@ const DEFAULT_PORTS: Record<DbType, number> = {
 // ============================================================
 
 /**
- * SQL 로깅 설정
- * @example
- * // 기본 console 로거 사용
- * setSqlLogging({ enabled: true });
- *
- * // 커스텀 로거 사용
- * setSqlLogging({
- *   enabled: true,
- *   logger: {
- *     info: (msg) => myLogger.info(msg),
- *     error: (msg) => myLogger.error(msg),
- *   }
- * });
- *
- * // 로깅 비활성화
- * setSqlLogging({ enabled: false });
+ * SQL 로깅 설정 (내부 함수)
  */
-export function setSqlLogging(options: SqlLoggingOptions): void {
+function setSqlLogging(options: SqlLoggingOptions): void {
   sqlLoggingEnabled = options.enabled;
   if (options.logger) {
     currentLogger = options.logger;
@@ -68,6 +64,34 @@ export function isSqlLoggingEnabled(): boolean {
 }
 
 /**
+ * DB 설정
+ * @example
+ * // 로깅 + dateStrings 설정
+ * configureDb({
+ *   logging: { enabled: true, logger: myLogger },
+ *   dateStrings: true,
+ * });
+ *
+ * // dateStrings만 설정
+ * configureDb({ dateStrings: true });
+ */
+export function configureDb(config: DbConfig): void {
+  if (config.logging !== undefined) {
+    setSqlLogging(config.logging);
+  }
+  if (config.dateStrings !== undefined) {
+    dateStringsEnabled = config.dateStrings;
+  }
+}
+
+/**
+ * dateStrings 옵션 활성화 여부 확인
+ */
+export function isDateStringsEnabled(): boolean {
+  return dateStringsEnabled;
+}
+
+/**
  * SQL 로깅을 스킵하는 컨텍스트 내에서 함수 실행
  * - 통합된 dbContextStorage를 사용하여 기존 컨텍스트(트랜잭션 등) 유지
  */
@@ -79,20 +103,23 @@ export function withSkippedSqlLogging<T>(fn: () => Promise<T>): Promise<T> {
 /**
  * SQL 문자열 빌드 (바인딩 값 포함)
  */
-function buildSqlString(strings: TemplateStringsArray, values: unknown[]): string {
-  let result = strings[0] || '';
+function buildSqlString(
+  strings: TemplateStringsArray,
+  values: unknown[]
+): string {
+  let result = strings[0] || "";
   for (let i = 0; i < values.length; i++) {
     const value = values[i];
     result += formatValue(value);
-    result += strings[i + 1] || '';
+    result += strings[i + 1] || "";
   }
   // result가 string이 아닌 경우 대비
-  if (typeof result !== 'string') {
+  if (typeof result !== "string") {
     result = String(result);
   }
   // prod 환경에서는 줄바꿈 제거, 그 외에는 유지
-  if (process.env.STAGE === 'prod') {
-    return result.replace(/\s+/g, ' ').trim();
+  if (process.env.STAGE === "prod") {
+    return result.replace(/\s+/g, " ").trim();
   }
   return result.trim();
 }
@@ -105,7 +132,9 @@ function buildSqlString(strings: TemplateStringsArray, values: unknown[]): strin
 function getSymbolProperty(obj: any, symbolName: string): any {
   try {
     const symbols = Object.getOwnPropertySymbols(obj);
-    const targetSymbol = symbols.find((s) => s.toString() === `Symbol(${symbolName})`);
+    const targetSymbol = symbols.find(
+      (s) => s.toString() === `Symbol(${symbolName})`
+    );
     return targetSymbol ? obj[targetSymbol] : undefined;
   } catch {
     // Symbol 접근 실패 시 undefined 반환
@@ -122,8 +151,8 @@ function extractSqlFromFragment(obj: any): string | null {
   try {
     // 방법 1: Bun SQL Query 객체의 Symbol 속성에서 추출
     // Symbol(strings)와 Symbol(values)에서 SQL 정보 추출
-    const symbolStrings = getSymbolProperty(obj, 'strings');
-    const symbolValues = getSymbolProperty(obj, 'values');
+    const symbolStrings = getSymbolProperty(obj, "strings");
+    const symbolValues = getSymbolProperty(obj, "values");
 
     if (symbolStrings && Array.isArray(symbolStrings)) {
       const values = Array.isArray(symbolValues) ? symbolValues : [];
@@ -133,27 +162,27 @@ function extractSqlFromFragment(obj: any): string | null {
     }
 
     // 방법 2: 일반 속성으로 strings/values가 있는 경우
-    if (obj.strings && Array.isArray(obj.strings) && 'values' in obj) {
+    if (obj.strings && Array.isArray(obj.strings) && "values" in obj) {
       const strings = obj.strings as TemplateStringsArray;
       const values = Array.isArray(obj.values) ? obj.values : [];
       return buildSqlString(strings, values);
     }
 
     // 방법 3: raw SQL 문자열이 있는 경우
-    if (typeof obj.raw === 'string') {
+    if (typeof obj.raw === "string") {
       return obj.raw;
     }
 
     // 방법 4: query 속성이 있는 경우
-    if (typeof obj.query === 'string') {
+    if (typeof obj.query === "string") {
       return obj.query;
     }
 
     // 방법 5: toString() 메서드가 유용한 정보를 반환하는 경우
-    if (typeof obj.toString === 'function') {
+    if (typeof obj.toString === "function") {
       const str = obj.toString();
       // [object Object]가 아닌 경우에만 사용
-      if (str && !str.includes('[object')) {
+      if (str && !str.includes("[object")) {
         return str;
       }
     }
@@ -170,22 +199,24 @@ function extractSqlFromFragment(obj: any): string | null {
  */
 function formatValue(value: unknown): string {
   if (value === null || value === undefined) {
-    return 'NULL';
+    return "NULL";
   }
-  if (typeof value === 'number' || typeof value === 'bigint') {
+  if (typeof value === "number" || typeof value === "bigint") {
     return String(value);
   }
-  if (typeof value === 'boolean') {
-    return value ? 'TRUE' : 'FALSE';
+  if (typeof value === "boolean") {
+    return value ? "TRUE" : "FALSE";
   }
   if (value instanceof Date) {
     return `'${value.toISOString()}'`;
   }
   if (Array.isArray(value)) {
-    return `[${value.map((v) => (isNumber(v) ? v : JSON.stringify(v))).join(',')}]`;
+    return `[${value
+      .map((v) => (isNumber(v) ? v : JSON.stringify(v)))
+      .join(",")}]`;
   }
   // SQL 템플릿 리터럴 객체 (쿼리 조합용)
-  if (value && typeof value === 'object') {
+  if (value && typeof value === "object") {
     const obj = value as any;
 
     // SQL Fragment에서 실제 SQL 문자열 추출 시도
@@ -195,15 +226,15 @@ function formatValue(value: unknown): string {
     }
 
     // Promise-like 객체인 경우 (SQL 추출 실패 시)
-    if (typeof obj.then === 'function') {
-      return '[SQL Fragment]';
+    if (typeof obj.then === "function") {
+      return "[SQL Fragment]";
     }
   }
   return JSON.stringify(value);
 }
 
 function isNumber(value: unknown): boolean {
-  return typeof value === 'number' && !Number.isNaN(value);
+  return typeof value === "number" && !Number.isNaN(value);
 }
 
 /**
@@ -211,7 +242,7 @@ function isNumber(value: unknown): boolean {
  */
 function isTestEnv(): boolean {
   return (
-    process.env.NODE_ENV === 'test' ||
+    process.env.NODE_ENV === "test" ||
     process.env.BUN_TEST !== undefined ||
     process.env.JEST_WORKER_ID !== undefined
   );
@@ -221,7 +252,7 @@ function isTestEnv(): boolean {
  * 프로덕션 환경 여부 확인
  */
 function isProdEnv(): boolean {
-  return process.env.STAGE === 'prod' || process.env.NODE_ENV === 'production';
+  return process.env.STAGE === "prod" || process.env.NODE_ENV === "production";
 }
 
 /**
@@ -234,7 +265,7 @@ function captureStack(): Error | undefined {
   if (isProdEnv()) {
     return undefined;
   }
-  return sqlLoggingEnabled ? new Error('Stack Capture') : undefined;
+  return sqlLoggingEnabled ? new Error("Stack Capture") : undefined;
 }
 
 /**
@@ -242,7 +273,7 @@ function captureStack(): Error | undefined {
  */
 function formatStackTrace(stackCapture?: Error): string {
   const stack = stackCapture?.stack || new Error().stack;
-  return stack?.replace(/^Error.*\n/, '').replace(/Stack Capture\n/, '') || '';
+  return stack?.replace(/^Error.*\n/, "").replace(/Stack Capture\n/, "") || "";
 }
 
 /**
@@ -250,7 +281,11 @@ function formatStackTrace(stackCapture?: Error): string {
  * - 프로덕션에서는 SQL과 Duration만 로깅 (스택 트레이스 제외)
  * - 개발/테스트 환경에서는 스택 트레이스 포함
  */
-function logQuery(sqlString: string, duration: number, stackCapture?: Error): void {
+function logQuery(
+  sqlString: string,
+  duration: number,
+  stackCapture?: Error
+): void {
   // 프로덕션에서는 간단한 로그만
   if (isProdEnv()) {
     const logMessage = `${sqlString} [${duration.toFixed(2)}ms]`;
@@ -302,8 +337,8 @@ function logError(sqlString: string, error: Error): void {
  */
 function detectDbType(): DbType {
   const url = process.env.DATABASE_URL;
-  if (url?.startsWith('mysql://')) return 'mysql';
-  return 'postgres'; // 기본값
+  if (url?.startsWith("mysql://")) return "mysql";
+  return "postgres"; // 기본값
 }
 
 /**
@@ -361,7 +396,7 @@ export function getBaseSql(): SQL {
   }
 
   throw new Error(
-    '데이터베이스 설정이 누락되었습니다. DATABASE_URL 또는 (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)을 설정해주세요.',
+    "데이터베이스 설정이 누락되었습니다. DATABASE_URL 또는 (DB_HOST, DB_USER, DB_PASSWORD, DB_NAME)을 설정해주세요."
   );
 }
 
@@ -391,20 +426,20 @@ function createLoggingProxy(
   result: any,
   sqlString: string,
   stackCapture: Error | undefined,
-  start: number,
+  start: number
 ): any {
   // result가 Promise가 아니면 그대로 반환
-  if (!result || typeof result.then !== 'function') {
+  if (!result || typeof result.then !== "function") {
     return result;
   }
 
   // 원래 SQL 객체를 Proxy로 감싸서 then/catch만 오버라이드
   return new Proxy(result, {
     get(target, prop, receiver) {
-      if (prop === 'then') {
+      if (prop === "then") {
         return (
           onFulfilled?: (value: any) => any,
-          onRejected?: (error: Error) => any,
+          onRejected?: (error: Error) => any
         ) => {
           return target.then(
             (res: unknown) => {
@@ -420,12 +455,12 @@ function createLoggingProxy(
               logError(sqlString, error);
               if (onRejected) return onRejected(error);
               throw error;
-            },
+            }
           );
         };
       }
 
-      if (prop === 'catch') {
+      if (prop === "catch") {
         return (onRejected?: (error: Error) => any) => {
           return target.catch((error: Error) => {
             logError(sqlString, error);
@@ -459,9 +494,9 @@ const sqlProxy = new Proxy((() => {}) as unknown as SQL, {
     const firstArg = argArray[0];
     const isTemplateCall =
       firstArg &&
-      typeof firstArg === 'object' &&
-      'raw' in firstArg &&
-      typeof firstArg[0] === 'string';
+      typeof firstArg === "object" &&
+      "raw" in firstArg &&
+      typeof firstArg[0] === "string";
 
     // 템플릿 리터럴 호출이 아니면 로깅 없이 반환 (sql(values) 같은 경우)
     if (!isTemplateCall) {
@@ -469,7 +504,10 @@ const sqlProxy = new Proxy((() => {}) as unknown as SQL, {
     }
 
     // 로깅을 위한 정보 준비
-    const [strings, ...values] = argArray as [TemplateStringsArray, ...unknown[]];
+    const [strings, ...values] = argArray as [
+      TemplateStringsArray,
+      ...unknown[]
+    ];
     const sqlString = buildSqlString(strings, values);
     const stackCapture = captureStack();
     const start = performance.now();

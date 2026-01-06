@@ -1,3 +1,14 @@
+import { isDateStringsEnabled } from '../internal/internal-db';
+
+/**
+ * Date 객체를 MySQL 형식 문자열로 변환합니다.
+ * @example formatDateToMySql(new Date()) // '2025-12-05 04:23:18'
+ */
+function formatDateToMySql(date: Date): string {
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+}
+
 /**
  * snake_case를 camelCase로 변환합니다.
  */
@@ -26,7 +37,7 @@ export function toCamelCase<T = Record<string, unknown>>(
             : item,
         );
       } else if (value instanceof Date) {
-        result[camelKey] = value;
+        result[camelKey] = isDateStringsEnabled() ? formatDateToMySql(value) : value;
       } else {
         result[camelKey] = toCamelCase(value as Record<string, unknown>, recursive);
       }

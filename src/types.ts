@@ -17,18 +17,32 @@ export interface SqlLoggingOptions {
 }
 
 /**
+ * DB 설정 옵션
+ */
+export interface DbConfig {
+  /** SQL 로깅 설정 */
+  logging?: SqlLoggingOptions;
+  /**
+   * Date 객체를 MySQL 형식 문자열로 반환할지 여부
+   * - false (기본값): Date 객체 그대로 반환
+   * - true: MySQL 형식 문자열 ('YYYY-MM-DD HH:mm:ss')로 반환
+   */
+  dateStrings?: boolean;
+}
+
+/**
  * 기본 console 로거
  */
 export const consoleLogger: SqlLogger = {
   info: (message) => {
-    if (typeof message === 'string') {
+    if (typeof message === "string") {
       console.log(message);
     } else {
       console.log(JSON.stringify(message, null, 2));
     }
   },
   error: (message) => {
-    if (typeof message === 'string') {
+    if (typeof message === "string") {
       console.error(message);
     } else {
       console.error(JSON.stringify(message, null, 2));
