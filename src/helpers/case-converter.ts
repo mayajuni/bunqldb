@@ -1,12 +1,30 @@
-import { isDateStringsEnabled } from '../internal/internal-db';
+import { isDateStringsEnabled } from "../internal/internal-db";
 
 /**
  * Date 객체를 MySQL 형식 문자열로 변환합니다.
- * @example formatDateToMySql(new Date()) // '2025-12-05 04:23:18'
+ * 시간이 00:00:00인 경우 날짜만 반환합니다 (DATE 타입 호환).
+ * @example
+ * formatDateToMySql(new Date('2023-07-01')) // '2023-07-01'
+ * formatDateToMySql(new Date('2023-07-01 14:30:00')) // '2023-07-01 14:30:00'
  */
 function formatDateToMySql(date: Date): string {
-  const pad = (n: number) => n.toString().padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  const pad = (n: number) => n.toString().padStart(2, "0");
+  const datePart = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
+    date.getDate()
+  )}`;
+
+  // 시간이 00:00:00인 경우 날짜만 반환 (DATE 타입 호환)
+  if (
+    date.getHours() === 0 &&
+    date.getMinutes() === 0 &&
+    date.getSeconds() === 0
+  ) {
+    return datePart;
+  }
+
+  return `${datePart} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
+    date.getSeconds()
+  )}`;
 }
 
 /**
@@ -22,24 +40,29 @@ export function snakeToCamel(str: string): string {
  */
 export function toCamelCase<T = Record<string, unknown>>(
   obj: Record<string, unknown>,
-  recursive = true,
+  recursive = true
 ): T {
   const result: Record<string, unknown> = {};
 
   for (const [key, value] of Object.entries(obj)) {
     const camelKey = snakeToCamel(key);
 
-    if (recursive && value && typeof value === 'object') {
+    if (recursive && value && typeof value === "object") {
       if (Array.isArray(value)) {
         result[camelKey] = value.map((item) =>
-          typeof item === 'object' && item !== null && !Array.isArray(item)
+          typeof item === "object" && item !== null && !Array.isArray(item)
             ? toCamelCase(item as Record<string, unknown>, recursive)
-            : item,
+            : item
         );
       } else if (value instanceof Date) {
-        result[camelKey] = isDateStringsEnabled() ? formatDateToMySql(value) : value;
+        result[camelKey] = isDateStringsEnabled()
+          ? formatDateToMySql(value)
+          : value;
       } else {
-        result[camelKey] = toCamelCase(value as Record<string, unknown>, recursive);
+        result[camelKey] = toCamelCase(
+          value as Record<string, unknown>,
+          recursive
+        );
       }
     } else {
       result[camelKey] = value;
@@ -53,7 +76,7 @@ export function toCamelCase<T = Record<string, unknown>>(
  * 배열의 각 객체를 camelCase로 변환합니다.
  */
 export function toCamelCaseArray<T = Record<string, unknown>>(
-  arr: Record<string, unknown>[],
+  arr: Record<string, unknown>[]
 ): T[] {
   return arr.map((item) => toCamelCase<T>(item));
 }

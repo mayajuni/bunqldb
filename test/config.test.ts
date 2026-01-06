@@ -22,6 +22,7 @@ import {
 // ============================================================
 
 const TEST_TABLE = "test_config";
+const TEST_DATE_TABLE = "test_date_type";
 const isMySQL = () => getDbType() === "mysql";
 
 async function createTestTable(): Promise<void> {
@@ -34,6 +35,15 @@ async function createTestTable(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+    // DATE 타입 테스트용 테이블
+    await sql`
+      CREATE TABLE IF NOT EXISTS ${sql(TEST_DATE_TABLE)} (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        name VARCHAR(100),
+        only_date DATE,
+        date_time DATETIME
+      )
+    `;
   } else {
     await sql`
       CREATE TABLE IF NOT EXISTS ${sql(TEST_TABLE)} (
@@ -43,11 +53,21 @@ async function createTestTable(): Promise<void> {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `;
+    // DATE 타입 테스트용 테이블
+    await sql`
+      CREATE TABLE IF NOT EXISTS ${sql(TEST_DATE_TABLE)} (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(100),
+        only_date DATE,
+        date_time TIMESTAMP
+      )
+    `;
   }
 }
 
 async function dropTestTable(): Promise<void> {
   await sql`DROP TABLE IF EXISTS ${sql(TEST_TABLE)}`;
+  await sql`DROP TABLE IF EXISTS ${sql(TEST_DATE_TABLE)}`;
 }
 
 async function clearTestData(): Promise<void> {
@@ -198,6 +218,54 @@ describe("dateStrings 옵션", () => {
     );
     expect(typeof result2!.createdAt).toBe("string");
     expect(result2!.createdAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/);
+  });
+});
+
+// ============================================================
+// DATE 타입 vs DATETIME 타입 테스트
+// ============================================================
+
+describe("DATE 타입 vs DATETIME 타입", () => {
+  beforeAll(async () => {
+    // DATE 타입 테스트 데이터 삽입
+    await sql`
+      INSERT INTO ${sql(TEST_DATE_TABLE)} (name, only_date, date_time)
+      VALUES (${"DateTest"}, ${"2023-07-01"}, ${"2023-07-01 14:30:00"})
+    `;
+  });
+
+  afterAll(async () => {
+    if (isMySQL()) {
+      await sql`TRUNCATE TABLE ${sql(TEST_DATE_TABLE)}`;
+    } else {
+      await sql`TRUNCATE TABLE ${sql(TEST_DATE_TABLE)} RESTART IDENTITY`;
+    }
+  });
+
+  test("dateStrings: true일 때 DATE 타입은 날짜만 반환해야 한다", async () => {
+    configureDb({ dateStrings: true });
+
+    const result = await DB.maybeOne<{ onlyDate: string; dateTime: string }>(
+      sql`SELECT * FROM ${sql(TEST_DATE_TABLE)} WHERE name = ${"DateTest"}`
+    );
+
+    expect(result).toBeDefined();
+    // DATE 타입: 'YYYY-MM-DD' 형식 (시간 없음)
+    expect(result!.onlyDate).toBe("2023-07-01");
+    // DATETIME 타입: 'YYYY-MM-DD HH:mm:ss' 형식
+    expect(result!.dateTime).toBe("2023-07-01 14:30:00");
+  });
+
+  test("dateStrings: false일 때 두 타입 모두 Date 객체여야 한다", async () => {
+    configureDb({ dateStrings: false });
+
+    const result = await DB.maybeOne<{ onlyDate: Date; dateTime: Date }>(
+      sql`SELECT * FROM ${sql(TEST_DATE_TABLE)} WHERE name = ${"DateTest"}`
+    );
+
+    expect(result).toBeDefined();
+    expect(result!.onlyDate instanceof Date).toBe(true);
+    expect(result!.dateTime instanceof Date).toBe(true);
   });
 });
 

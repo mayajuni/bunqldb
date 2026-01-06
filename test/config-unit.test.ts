@@ -178,6 +178,28 @@ describe("toCamelCase() dateStrings 변환", () => {
     expect(typeof result2.createdAt).toBe("string");
     expect(result2.createdAt).toBe("2025-12-05 04:23:18");
   });
+
+  test("dateStrings: true일 때 시간이 00:00:00이면 날짜만 반환해야 한다 (DATE 타입 호환)", () => {
+    configureDb({ dateStrings: true });
+
+    // DATE 타입처럼 시간이 00:00:00인 경우
+    const dateOnly = new Date(2023, 6, 1, 0, 0, 0); // 2023-07-01 00:00:00
+    const input = { birth_date: dateOnly };
+    const result = toCamelCase<{ birthDate: string }>(input);
+
+    expect(result.birthDate).toBe("2023-07-01");
+  });
+
+  test("dateStrings: true일 때 시간이 있으면 전체 형식을 반환해야 한다", () => {
+    configureDb({ dateStrings: true });
+
+    // DATETIME 타입처럼 시간이 있는 경우
+    const dateTime = new Date(2023, 6, 1, 14, 30, 0); // 2023-07-01 14:30:00
+    const input = { created_at: dateTime };
+    const result = toCamelCase<{ createdAt: string }>(input);
+
+    expect(result.createdAt).toBe("2023-07-01 14:30:00");
+  });
 });
 
 // ============================================================
