@@ -12,6 +12,12 @@ import { toCamelCase, toCamelCaseArray } from './case-converter';
 
 /**
  * DB 쿼리 실행 옵션
+ * @deprecated sql.silent 체이닝 사용을 권장합니다.
+ * @example
+ * // 기존 방식 (호환성 유지)
+ * await DB.many(sql`SELECT ...`, { logging: false });
+ * // 새로운 방식 (권장)
+ * await DB.many(sql.silent`SELECT ...`);
  */
 export interface DbQueryOptions {
   logging?: boolean; // false일 경우 SQL 로깅 비활성화 (기본값: true)
@@ -112,7 +118,10 @@ export class DB {
    * 여러 행을 조회하고 camelCase로 변환합니다.
    * @example
    * const users = await DB.many(sql`SELECT * FROM users`);
+   * // 로깅 비활성화 (방법 1: 기존 방식)
    * const users = await DB.many(sql`SELECT * FROM users`, { logging: false });
+   * // 로깅 비활성화 (방법 2: 체이닝 방식)
+   * const users = await DB.many(sql.silent`SELECT * FROM users`);
    */
   static async many<T = any>(
     query: Promise<Record<string, unknown>[]> | SQL,
@@ -136,7 +145,10 @@ export class DB {
    * 결과가 없으면 undefined를 반환합니다.
    * @example
    * const user = await DB.maybeOne(sql`SELECT * FROM users WHERE id = ${id}`);
+   * // 로깅 비활성화 (방법 1: 기존 방식)
    * const user = await DB.maybeOne(sql`SELECT * FROM users WHERE id = ${id}`, { logging: false });
+   * // 로깅 비활성화 (방법 2: 체이닝 방식)
+   * const user = await DB.maybeOne(sql.silent`SELECT * FROM users WHERE id = ${id}`);
    */
   static async maybeOne<T = any>(
     query: Promise<Record<string, unknown>[]> | SQL,
@@ -171,8 +183,10 @@ export class DB {
    *   RETURNING id
    * `);
    *
-   * // SQL 로그 비활성화
-   * const id = await DB.insert(sql`...`, { logging: false });
+   * // 로깅 비활성화 (방법 1: 기존 방식)
+   * const id = await DB.insert(sql`INSERT INTO users ...`, { logging: false });
+   * // 로깅 비활성화 (방법 2: 체이닝 방식)
+   * const id = await DB.insert(sql.silent`INSERT INTO users ...`);
    */
   static async insert(
     query: Promise<Record<string, unknown>[]> | SQL,
@@ -217,7 +231,11 @@ export class DB {
    * - MySQL: affectedRows 반환
    * - PostgreSQL: count 반환
    * @example
-   * const affected = await DB.update(sql`...`, { logging: false });
+   * const affected = await DB.update(sql`UPDATE users SET name = ${name} WHERE id = ${id}`);
+   * // 로깅 비활성화 (방법 1: 기존 방식)
+   * const affected = await DB.update(sql`UPDATE users ...`, { logging: false });
+   * // 로깅 비활성화 (방법 2: 체이닝 방식)
+   * const affected = await DB.update(sql.silent`UPDATE users ...`);
    */
   static async update(
     query: Promise<Record<string, unknown>[]> | SQL,
@@ -250,7 +268,11 @@ export class DB {
    * - MySQL: affectedRows 반환
    * - PostgreSQL: count 반환
    * @example
-   * const deleted = await DB.delete(sql`...`, { logging: false });
+   * const deleted = await DB.delete(sql`DELETE FROM users WHERE id = ${id}`);
+   * // 로깅 비활성화 (방법 1: 기존 방식)
+   * const deleted = await DB.delete(sql`DELETE FROM users ...`, { logging: false });
+   * // 로깅 비활성화 (방법 2: 체이닝 방식)
+   * const deleted = await DB.delete(sql.silent`DELETE FROM users ...`);
    */
   static async delete(
     query: Promise<Record<string, unknown>[]> | SQL,

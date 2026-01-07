@@ -1,6 +1,6 @@
 {
   "name": "bunqldb",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Bun 네이티브 SQL 클라이언트 기반 MySQL/PostgreSQL 호환 데이터베이스 모듈",
   "type": "module",
   "main": "./src/index.ts",

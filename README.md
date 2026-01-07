@@ -186,16 +186,39 @@ const count = await DB.update(sql`UPDATE users SET name = ${name} WHERE seq = ${
 const count = await DB.delete(sql`DELETE FROM users WHERE seq = ${seq}`);
 ```
 
-### 쿼리 옵션
+### SQL 로깅 제어
 
-모든 CRUD 메서드는 두 번째 인자로 옵션을 받습니다.
+SQL 로깅을 제어하는 방법은 두 가지가 있습니다.
+
+#### 방법 1: sql.silent / sql.verbose 체이닝 (권장)
 
 ```typescript
-// SQL 로깅 비활성화 (민감한 데이터 조회 시 유용)
+// 기본: 전역 설정에 따름
+const users = await sql`SELECT * FROM users`;
+
+// sql.silent: 전역 설정과 무관하게 로깅하지 않음
+const users = await sql.silent`SELECT * FROM users`;
+const user = await DB.many(sql.silent`SELECT * FROM users`);
+
+// sql.verbose: 전역 설정과 무관하게 항상 로깅
+const users = await sql.verbose`SELECT * FROM users`;
+```
+
+#### 방법 2: 옵션 파라미터 (기존 방식, 호환성 유지)
+
+```typescript
+// DB 헬퍼 메서드에서 옵션으로 로깅 비활성화
 const users = await DB.many(sql`SELECT * FROM users`, { logging: false });
 const user = await DB.maybeOne(sql`SELECT * FROM users WHERE id = ${id}`, { logging: false });
 const id = await DB.insert(sql`INSERT INTO users ...`, { logging: false });
 ```
+
+#### 동작 매트릭스
+
+| 전역 설정 | `sql` | `sql.verbose` | `sql.silent` |
+|-----------|-------|---------------|--------------|
+| `enabled: true` | 로깅 O | 로깅 O | 로깅 X |
+| `enabled: false` | 로깅 X | 로깅 O | 로깅 X |
 
 ### 페이징 메서드
 
@@ -287,6 +310,8 @@ query = sql`SELECT * FROM users WHERE 1=1 ${cursorCondition('seq', cursor, isDes
 | `sql(array)` | IN 절용 배열 | `sql([1, 2, 3])` |
 | `sql(object)` | INSERT용 객체 | `sql({ name: 'Alice', email: 'a@b.com' })` |
 | `sql.unsafe(str)` | Raw SQL 삽입 (주의!) | `sql.unsafe('DESC')` |
+| `sql.silent` | 로깅 비활성화 체이닝 | `sql.silent\`SELECT ...\`` |
+| `sql.verbose` | 강제 로깅 체이닝 | `sql.verbose\`SELECT ...\`` |
 | `empty()` | 빈 SQL 조각 (조건부 조합용) | `condition ? sql\`AND x\` : empty()` |
 | `orderBy(column, direction)` | ORDER BY 조각 | `orderBy('created_at', 'DESC')` |
 | `limit(n)` | LIMIT 조각 | `limit(10)` |
@@ -304,7 +329,6 @@ query = sql`SELECT * FROM users WHERE 1=1 ${cursorCondition('seq', cursor, isDes
 | `getBaseSql()` | Bun SQL 인스턴스 반환 (수동 트랜잭션용) |
 | `isDbConnected()` | DB 연결 상태 확인 |
 | `resetConnection()` | DB 연결 초기화 |
-| `withSkippedSqlLogging(fn)` | SQL 로깅 스킵하고 함수 실행 |
 
 ### Case Converter 함수 목록
 

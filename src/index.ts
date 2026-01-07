@@ -14,6 +14,7 @@ export {
 export {
   cursorCondition,
   DB,
+  /** @deprecated sql.silent 체이닝 사용을 권장합니다. */
   type DbQueryOptions,
   empty,
   limit,
@@ -32,7 +33,6 @@ export {
   isSqlLoggingEnabled,
   resetConnection,
   sql,
-  withSkippedSqlLogging,
 } from "./internal/internal-db";
 
 // Transactional decorator

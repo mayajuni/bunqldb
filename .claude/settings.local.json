@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun test:*)",
+      "Bash(bun --env-file=.env.test.mysql test test/sql-chaining.test.ts)",
+      "Bash(bun run test:all:*)"
+    ]
+  }
+}

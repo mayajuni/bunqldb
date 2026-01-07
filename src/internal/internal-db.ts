@@ -421,12 +421,14 @@ export function isDbConnected(): boolean {
  * SQL 결과 객체에 로깅을 추가하는 Proxy 생성
  * - 원래 SQL 객체의 모든 속성을 유지 (쿼리 조합 기능 보존)
  * - then/catch만 오버라이드하여 실행 시점에 로깅
+ * @param mode 로깅 모드 (verbose: 항상 로깅, silent: 로깅 안함, default: 전역 설정 따름)
  */
 function createLoggingProxy(
   result: any,
   sqlString: string,
   stackCapture: Error | undefined,
-  start: number
+  start: number,
+  mode: "default" | "verbose" | "silent" = "default"
 ): any {
   // result가 Promise가 아니면 그대로 반환
   if (!result || typeof result.then !== "function") {
@@ -443,8 +445,15 @@ function createLoggingProxy(
         ) => {
           return target.then(
             (res: unknown) => {
-              // 실행 시점에 SQL 로깅 스킵 여부 체크 (withSkippedSqlLogging 컨텍스트 반영)
-              if (!isSqlLoggingSkipped()) {
+              // 로깅 모드에 따른 처리
+              // verbose: 항상 로깅
+              // silent: 로깅 안함 (이 경우 createLoggingProxy가 호출되지 않음)
+              // default: 전역 설정 + 컨텍스트에 따름
+              const shouldLog =
+                mode === "verbose" ||
+                (mode === "default" && !isSqlLoggingSkipped());
+
+              if (shouldLog) {
                 const duration = performance.now() - start;
                 logQuery(sqlString, duration, stackCapture);
               }
@@ -476,50 +485,82 @@ function createLoggingProxy(
   });
 }
 
-const sqlProxy = new Proxy((() => {}) as unknown as SQL, {
-  apply(_target, _thisArg, argArray) {
-    const tx = getTx();
-    const currentSql = tx || getBaseSql();
+// ============================================================
+// SQL Proxy 로깅 모드
+// ============================================================
 
-    // 원래 SQL 결과 생성
-    const result = (currentSql as any)(...argArray);
+type LoggingMode = "default" | "verbose" | "silent";
 
-    // 로깅이 비활성화되거나 SQL 로깅 스킵 모드면 그대로 반환
-    if (!sqlLoggingEnabled || isSqlLoggingSkipped()) {
-      return result;
-    }
+/**
+ * 지정된 로깅 모드로 SQL Proxy 생성
+ */
+function createSqlProxyWithMode(mode: LoggingMode): SQL {
+  return new Proxy((() => {}) as unknown as SQL, {
+    apply(_target, _thisArg, argArray) {
+      const tx = getTx();
+      const currentSql = tx || getBaseSql();
 
-    // sql(values) 형태의 호출인지 확인 (템플릿 리터럴이 아닌 경우)
-    // TemplateStringsArray는 raw 속성을 가지고, 첫 번째 요소가 string임
-    const firstArg = argArray[0];
-    const isTemplateCall =
-      firstArg &&
-      typeof firstArg === "object" &&
-      "raw" in firstArg &&
-      typeof firstArg[0] === "string";
+      // 원래 SQL 결과 생성
+      const result = (currentSql as any)(...argArray);
 
-    // 템플릿 리터럴 호출이 아니면 로깅 없이 반환 (sql(values) 같은 경우)
-    if (!isTemplateCall) {
-      return result;
-    }
+      // 로깅 모드에 따른 처리
+      // silent: 항상 로깅 스킵
+      if (mode === "silent") {
+        return result;
+      }
 
-    // 로깅을 위한 정보 준비
-    const [strings, ...values] = argArray as [
-      TemplateStringsArray,
-      ...unknown[]
-    ];
-    const sqlString = buildSqlString(strings, values);
-    const stackCapture = captureStack();
-    const start = performance.now();
+      // verbose: 전역 설정 무시하고 항상 로깅
+      // default: 전역 설정에 따름
+      const shouldLog =
+        mode === "verbose" ||
+        (mode === "default" && sqlLoggingEnabled && !isSqlLoggingSkipped());
 
-    // 로깅 Proxy로 감싸서 반환 (원래 SQL 객체 특성 유지)
-    return createLoggingProxy(result, sqlString, stackCapture, start);
-  },
-  get(_target, prop, _receiver) {
-    const tx = getTx();
-    const currentSql = tx || getBaseSql();
-    return Reflect.get(currentSql, prop, currentSql);
-  },
-});
+      if (!shouldLog) {
+        return result;
+      }
+
+      // sql(values) 형태의 호출인지 확인 (템플릿 리터럴이 아닌 경우)
+      // TemplateStringsArray는 raw 속성을 가지고, 첫 번째 요소가 string임
+      const firstArg = argArray[0];
+      const isTemplateCall =
+        firstArg &&
+        typeof firstArg === "object" &&
+        "raw" in firstArg &&
+        typeof firstArg[0] === "string";
+
+      // 템플릿 리터럴 호출이 아니면 로깅 없이 반환 (sql(values) 같은 경우)
+      if (!isTemplateCall) {
+        return result;
+      }
+
+      // 로깅을 위한 정보 준비
+      const [strings, ...values] = argArray as [
+        TemplateStringsArray,
+        ...unknown[]
+      ];
+      const sqlString = buildSqlString(strings, values);
+      const stackCapture = captureStack();
+      const start = performance.now();
+
+      // 로깅 Proxy로 감싸서 반환 (원래 SQL 객체 특성 유지)
+      return createLoggingProxy(result, sqlString, stackCapture, start, mode);
+    },
+    get(_target, prop, _receiver) {
+      // verbose/silent 체이닝 지원
+      if (prop === "verbose") {
+        return createSqlProxyWithMode("verbose");
+      }
+      if (prop === "silent") {
+        return createSqlProxyWithMode("silent");
+      }
+
+      const tx = getTx();
+      const currentSql = tx || getBaseSql();
+      return Reflect.get(currentSql, prop, currentSql);
+    },
+  });
+}
+
+const sqlProxy = createSqlProxyWithMode("default");
 
 export { sqlProxy as sql };
