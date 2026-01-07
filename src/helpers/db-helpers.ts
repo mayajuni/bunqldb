@@ -37,7 +37,7 @@ async function executeQuery(
  * camelCase 컬럼명 추출
  */
 function getCamelColumn(column: string): string {
-  const actualColumn = column.includes('.') ? column.split('.')[1] : column;
+  const actualColumn = column.includes('.') ? column.split('.')[1] ?? column : column;
   return actualColumn.replace(/[_-]+(.)/g, (_, chr) => chr.toUpperCase());
 }
 
@@ -157,7 +157,9 @@ export class DB {
     const executeFn = async () => {
       const result = await executeQuery(query);
       if (!Array.isArray(result) || result.length === 0) return undefined;
-      return toCamelCase<T>(result[0]);
+      const firstRow = result[0];
+      if (!firstRow) return undefined;
+      return toCamelCase<T>(firstRow);
     };
 
     if (options?.logging === false) {
@@ -204,7 +206,7 @@ export class DB {
       }
 
       // PostgreSQL: RETURNING 결과 (배열)
-      if (Array.isArray(result) && result.length > 0) {
+      if (Array.isArray(result) && result.length > 0 && result[0]) {
         const firstValue = Object.values(result[0])[0];
 
         // number, bigint, string(숫자형) 모두 처리
