@@ -13,6 +13,22 @@ import {
 } from "../types";
 
 // ============================================================
+// 확장된 SQL 타입 정의 (verbose/silent 체이닝 지원)
+// ============================================================
+
+/**
+ * verbose/silent 체이닝을 지원하는 확장된 SQL 타입
+ * - sql.verbose`...`: 전역 설정 무시하고 항상 로깅
+ * - sql.silent`...`: 전역 설정 무시하고 로깅 안함
+ */
+export interface ExtendedSQL extends SQL {
+  /** 전역 설정 무시하고 항상 로깅 */
+  verbose: SQL;
+  /** 전역 설정 무시하고 로깅 안함 */
+  silent: SQL;
+}
+
+// ============================================================
 // 타입 정의
 // ============================================================
 
@@ -495,7 +511,11 @@ type LoggingMode = "default" | "verbose" | "silent";
  * 지정된 로깅 모드로 SQL Proxy 생성
  */
 function createSqlProxyWithMode(mode: LoggingMode): SQL {
-  return new Proxy((() => {}) as unknown as SQL, {
+  // Proxy target은 실제로 사용되지 않음 (apply 핸들러에서 처리)
+  const noop = () => {
+    /* 의도적 빈 함수 */
+  };
+  return new Proxy(noop as unknown as SQL, {
     apply(_target, _thisArg, argArray) {
       const tx = getTx();
       const currentSql = tx || getBaseSql();
@@ -561,6 +581,6 @@ function createSqlProxyWithMode(mode: LoggingMode): SQL {
   });
 }
 
-const sqlProxy = createSqlProxyWithMode("default");
+const sqlProxy = createSqlProxyWithMode("default") as ExtendedSQL;
 
 export { sqlProxy as sql };

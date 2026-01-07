@@ -10,7 +10,9 @@
     "declaration": true,
     "declarationMap": true,
     "noEmit": true,
-    "types": ["bun-types"]
+    "types": ["bun-types"],
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
   },
   "include": ["src/**/*", "test/**/*"],
   "exclude": ["node_modules"]

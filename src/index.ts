@@ -23,7 +23,7 @@ export {
 } from "./helpers/db-helpers";
 
 // Internal DB (public exports only)
-export type { DbType } from "./internal/internal-db";
+export type { DbType, ExtendedSQL } from "./internal/internal-db";
 export {
   configureDb,
   getBaseSql,

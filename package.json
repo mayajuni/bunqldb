@@ -1,6 +1,6 @@
 {
   "name": "bunqldb",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Bun 네이티브 SQL 클라이언트 기반 MySQL/PostgreSQL 호환 데이터베이스 모듈",
   "type": "module",
   "main": "./src/index.ts",
@@ -25,7 +25,14 @@
     "test:mysql": "bun --env-file=.env.test.mysql test",
     "test:postgres": "bun --env-file=.env.test.postgres test",
     "test:all": "bun run test:mysql && bun run test:postgres",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome lint ./src ./test",
+    "lint:fix": "biome lint --write ./src ./test",
+    "format": "biome format ./src ./test",
+    "format:fix": "biome format --write ./src ./test",
+    "check": "biome check ./src ./test",
+    "check:fix": "biome check --write ./src ./test",
+    "validate": "bun run typecheck && bun run lint"
   },
   "keywords": [
     "bun",
@@ -50,6 +57,7 @@
     "bun-types": ">=1.0.0"
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.3.11",
     "bun-types": "latest",
     "typescript": "^5.0.0"
   }

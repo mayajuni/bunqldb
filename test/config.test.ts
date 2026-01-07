@@ -13,7 +13,6 @@ import {
   isDateStringsEnabled,
   isSqlLoggingEnabled,
   sql,
-  type DbConfig,
   type SqlLogger,
 } from "../src";
 
