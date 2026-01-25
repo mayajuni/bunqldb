@@ -426,7 +426,7 @@ console.log(result1.createdAt);
 // → Date 객체: Fri Dec 05 2025 04:23:18 GMT+0900
 // → JSON 직렬화 시: "2025-12-04T19:23:18.000Z" (UTC로 변환됨)
 
-// dateStrings: true - MySQL 형식 문자열로 반환
+// dateStrings: true - DB 형식 문자열로 반환
 configureDb({ dateStrings: true });
 const result2 = await DB.maybeOne(sql`SELECT created_at FROM users WHERE id = 1`);
 console.log(result2.createdAt);
@@ -434,15 +434,15 @@ console.log(result2.createdAt);
 // → JSON 직렬화 시: "2025-12-05 04:23:18"
 ```
 
-#### DATE 타입 vs DATETIME 타입
+#### DATE 타입 vs DATETIME/TIMESTAMP 타입
 
-`dateStrings: true`일 때, **DATE 타입**(시간 없음)과 **DATETIME 타입**(시간 있음)을 자동으로 구분합니다.
+`dateStrings: true`일 때, **DATE 타입**(시간 없음)과 **DATETIME/TIMESTAMP 타입**(시간 있음)을 자동으로 구분합니다.
 
 ```typescript
 configureDb({ dateStrings: true });
 
-// DATE 타입 컬럼: birth_date DATE → '2023-07-01'
-// DATETIME 타입 컬럼: created_at DATETIME → '2023-07-01 14:30:00'
+// MySQL: DATE, DATETIME 타입
+// PostgreSQL: DATE, TIMESTAMP 타입
 const result = await DB.maybeOne(sql`
   SELECT birth_date, created_at FROM users WHERE id = 1
 `);
@@ -451,11 +451,25 @@ console.log(result.birthDate);  // "2023-07-01" (날짜만)
 console.log(result.createdAt);  // "2023-07-01 14:30:00" (날짜+시간)
 ```
 
-> **참고**: 시간이 `00:00:00`인 경우 날짜만 반환됩니다. 실제로 자정 시간을 저장한 DATETIME도 동일하게 동작합니다.
+> **참고**: 시간이 `00:00:00`인 경우 날짜만 반환됩니다. 실제로 자정 시간을 저장한 DATETIME/TIMESTAMP도 동일하게 동작합니다.
+
+#### 타임존 처리
+
+`dateStrings: true`는 **서버 타임존에 관계없이** DB에 저장된 값을 그대로 반환합니다.
+
+```typescript
+// 서버가 한국(KST), 미국(EDT), UTC 어디에 있든
+// DB에 '2025-12-05 14:30:00'이 저장되어 있으면
+// 항상 "2025-12-05 14:30:00"을 반환합니다.
+configureDb({ dateStrings: true });
+const result = await DB.maybeOne(sql`SELECT created_at FROM users WHERE id = 1`);
+console.log(result.createdAt);  // "2025-12-05 14:30:00" (타임존 변환 없음)
+```
 
 **언제 `dateStrings: true`를 사용하나요?**
 - API 응답에서 시간대 변환 없이 DB 저장 값 그대로 반환하고 싶을 때
 - 프론트엔드에서 ISO 8601 형식 대신 원본 형식을 기대할 때
+- 서버 타임존이 달라도 일관된 날짜 형식이 필요할 때
 
 ### SQL 로깅 설정
 

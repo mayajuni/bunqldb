@@ -1,30 +1,35 @@
-import { isDateStringsEnabled } from "../internal/internal-db";
+import { getDbType, isDateStringsEnabled } from "../internal/internal-db";
 
 /**
- * Date 객체를 MySQL 형식 문자열로 변환합니다.
+ * Date 객체를 DB 형식 문자열로 변환합니다.
+ * DB 타입에 따라 적절한 메서드를 사용하여 DB 저장값을 그대로 반환합니다.
+ * - MySQL: 로컬 타임존 메서드 사용 (Bun SQL이 로컬 타임존으로 해석)
+ * - PostgreSQL: UTC 메서드 사용 (Bun SQL이 UTC로 해석)
  * 시간이 00:00:00인 경우 날짜만 반환합니다 (DATE 타입 호환).
  * @example
- * formatDateToMySql(new Date('2023-07-01')) // '2023-07-01'
- * formatDateToMySql(new Date('2023-07-01 14:30:00')) // '2023-07-01 14:30:00'
+ * formatDateToDbString(new Date('2023-07-01T00:00:00Z')) // '2023-07-01'
+ * formatDateToDbString(new Date('2023-07-01T14:30:00Z')) // '2023-07-01 14:30:00'
  */
-function formatDateToMySql(date: Date): string {
+function formatDateToDbString(date: Date): string {
   const pad = (n: number) => n.toString().padStart(2, "0");
-  const datePart = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(
-    date.getDate()
-  )}`;
+  const isMySQL = getDbType() === "mysql";
+
+  // MySQL: 로컬 타임존 메서드, PostgreSQL: UTC 메서드
+  const year = isMySQL ? date.getFullYear() : date.getUTCFullYear();
+  const month = isMySQL ? date.getMonth() + 1 : date.getUTCMonth() + 1;
+  const day = isMySQL ? date.getDate() : date.getUTCDate();
+  const hours = isMySQL ? date.getHours() : date.getUTCHours();
+  const minutes = isMySQL ? date.getMinutes() : date.getUTCMinutes();
+  const seconds = isMySQL ? date.getSeconds() : date.getUTCSeconds();
+
+  const datePart = `${year}-${pad(month)}-${pad(day)}`;
 
   // 시간이 00:00:00인 경우 날짜만 반환 (DATE 타입 호환)
-  if (
-    date.getHours() === 0 &&
-    date.getMinutes() === 0 &&
-    date.getSeconds() === 0
-  ) {
+  if (hours === 0 && minutes === 0 && seconds === 0) {
     return datePart;
   }
 
-  return `${datePart} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(
-    date.getSeconds()
-  )}`;
+  return `${datePart} ${pad(hours)}:${pad(minutes)}:${pad(seconds)}`;
 }
 
 /**
@@ -56,7 +61,7 @@ export function toCamelCase<T = Record<string, unknown>>(
         );
       } else if (value instanceof Date) {
         result[camelKey] = isDateStringsEnabled()
-          ? formatDateToMySql(value)
+          ? formatDateToDbString(value)
           : value;
       } else {
         result[camelKey] = toCamelCase(

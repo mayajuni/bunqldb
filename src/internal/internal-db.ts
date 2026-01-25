@@ -421,6 +421,7 @@ export function resetConnection(): void {
     baseSql.close();
     baseSql = null;
   }
+  detectedDbType = null; // DB 타입 캐시도 초기화
 }
 
 export function isDbConnected(): boolean {
