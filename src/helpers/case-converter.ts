@@ -33,6 +33,35 @@ function formatDateToDbString(date: Date): string {
 }
 
 // ============================================================
+// MySQL 바이트 객체 변환 헬퍼 (집계 함수 DECIMAL 결과)
+// ============================================================
+
+/**
+ * MySQL 와이어 프로토콜에서 반환된 바이트 객체를 문자열로 변환합니다.
+ * Bun SQL이 IFNULL(SUM(...), 0), AVG(...) 등 집계 함수 결과를
+ * {0:49, 1:53, 2:55, 3:46, ...} 형태의 ASCII 바이트 객체로 반환하는 문제를 해결합니다.
+ * @param value 변환할 값
+ * @returns 디코딩된 문자열 또는 undefined (바이트 객체가 아닌 경우)
+ */
+function tryDecodeByteObject(value: object): string | undefined {
+  const obj = value as Record<string, unknown>;
+  const keys = Object.keys(obj);
+
+  if (keys.length === 0) return undefined;
+
+  // 모든 키가 연속된 숫자 인덱스("0","1","2",...)이고, 값이 0~127 범위 정수인지 확인
+  for (let i = 0; i < keys.length; i++) {
+    if (keys[i] !== String(i)) return undefined;
+    const v = obj[keys[i]];
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 127) {
+      return undefined;
+    }
+  }
+
+  return String.fromCharCode(...(keys.map((k) => obj[k] as number)));
+}
+
+// ============================================================
 // PostgreSQL 타입 변환 헬퍼 (JSON/JSONB, INTEGER[] 등)
 // ============================================================
 
@@ -163,9 +192,15 @@ function transformValue(value: unknown, recursive: boolean): unknown {
     );
   }
 
-  // 객체 처리 (재귀)
-  if (recursive && typeof converted === "object") {
-    return toCamelCase(converted as Record<string, unknown>, recursive);
+  // MySQL 바이트 객체 처리 (SUM, AVG 등 집계 함수 DECIMAL 결과)
+  if (typeof converted === "object") {
+    const decoded = tryDecodeByteObject(converted as object);
+    if (decoded !== undefined) return decoded;
+
+    // 일반 객체 처리 (재귀)
+    if (recursive) {
+      return toCamelCase(converted as Record<string, unknown>, recursive);
+    }
   }
 
   return converted;

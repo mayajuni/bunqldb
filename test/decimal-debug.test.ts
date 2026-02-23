@@ -295,6 +295,103 @@ describe('DB.cursorPaginate() + DECIMAL', () => {
 });
 
 // ============================================================
+// 집계 함수 + DECIMAL (IFNULL, SUM, AVG 등)
+// ============================================================
+
+describe('집계 함수 + DECIMAL (바이트 객체 문제)', () => {
+  beforeAll(() => clearAndSeed(5));
+
+  test('IFNULL/COALESCE(SUM(...), 0)이 숫자/문자열로 반환되어야 한다 ([object Object] 금지)', async () => {
+    const nullSafeSum = isMySQL()
+      ? sql`IFNULL(SUM(price), 0)`
+      : sql`COALESCE(SUM(price), 0)`;
+
+    const row = await DB.maybeOne<{ totalPrice: unknown }>(
+      sql`SELECT ${nullSafeSum} as total_price FROM ${sql(TEST_TABLE)}`,
+    );
+
+    expect(row).toBeDefined();
+    console.log('IFNULL/COALESCE(SUM) raw:', row!.totalPrice, 'typeof:', typeof row!.totalPrice);
+    console.log('String():', String(row!.totalPrice));
+    console.log('Number():', Number(row!.totalPrice));
+
+    expect(String(row!.totalPrice)).not.toBe('[object Object]');
+    expect(Number.isNaN(Number(row!.totalPrice))).toBe(false);
+  });
+
+  test('SUM()이 숫자/문자열로 반환되어야 한다', async () => {
+    const row = await DB.maybeOne<{ totalPrice: unknown }>(
+      sql`SELECT SUM(price) as total_price FROM ${sql(TEST_TABLE)}`,
+    );
+
+    expect(row).toBeDefined();
+    console.log('SUM raw:', row!.totalPrice, 'typeof:', typeof row!.totalPrice);
+
+    expect(String(row!.totalPrice)).not.toBe('[object Object]');
+    expect(Number.isNaN(Number(row!.totalPrice))).toBe(false);
+  });
+
+  test('AVG()이 숫자/문자열로 반환되어야 한다', async () => {
+    const row = await DB.maybeOne<{ avgPrice: unknown }>(
+      sql`SELECT AVG(price) as avg_price FROM ${sql(TEST_TABLE)}`,
+    );
+
+    expect(row).toBeDefined();
+    console.log('AVG raw:', row!.avgPrice, 'typeof:', typeof row!.avgPrice);
+
+    expect(String(row!.avgPrice)).not.toBe('[object Object]');
+    expect(Number.isNaN(Number(row!.avgPrice))).toBe(false);
+  });
+
+  test('IFNULL/COALESCE(SUM(...), 0)에서 결과가 없을 때 0이 반환되어야 한다', async () => {
+    const nullSafeSum = isMySQL()
+      ? sql`IFNULL(SUM(price), 0)`
+      : sql`COALESCE(SUM(price), 0)`;
+
+    const row = await DB.maybeOne<{ totalPrice: unknown }>(
+      sql`SELECT ${nullSafeSum} as total_price FROM ${sql(TEST_TABLE)} WHERE name = ${'NonExistent'}`,
+    );
+
+    expect(row).toBeDefined();
+    console.log('IFNULL/COALESCE(SUM) empty raw:', row!.totalPrice, 'typeof:', typeof row!.totalPrice);
+
+    expect(String(row!.totalPrice)).not.toBe('[object Object]');
+    const numValue = Number(row!.totalPrice);
+    expect(Number.isNaN(numValue)).toBe(false);
+    expect(numValue).toBe(0);
+  });
+
+  test('COALESCE(SUM(...), 0)이 숫자/문자열로 반환되어야 한다', async () => {
+    const row = await DB.maybeOne<{ totalPrice: unknown }>(
+      sql`SELECT COALESCE(SUM(price), 0) as total_price FROM ${sql(TEST_TABLE)}`,
+    );
+
+    expect(row).toBeDefined();
+    console.log('COALESCE(SUM) raw:', row!.totalPrice, 'typeof:', typeof row!.totalPrice);
+
+    expect(String(row!.totalPrice)).not.toBe('[object Object]');
+    expect(Number.isNaN(Number(row!.totalPrice))).toBe(false);
+  });
+
+  test('DB.many()로 GROUP BY + IFNULL/COALESCE(SUM)이 정상이어야 한다', async () => {
+    const nullSafeSum = isMySQL()
+      ? sql`IFNULL(SUM(price), 0)`
+      : sql`COALESCE(SUM(price), 0)`;
+
+    const result = await DB.many<{ name: string; totalPrice: unknown }>(
+      sql`SELECT name, ${nullSafeSum} as total_price FROM ${sql(TEST_TABLE)} GROUP BY name ORDER BY name`,
+    );
+
+    expect(result.length).toBeGreaterThan(0);
+    for (const row of result) {
+      console.log(`GROUP BY ${row.name}: totalPrice=`, row.totalPrice, 'typeof:', typeof row.totalPrice);
+      expect(String(row.totalPrice)).not.toBe('[object Object]');
+      expect(Number.isNaN(Number(row.totalPrice))).toBe(false);
+    }
+  });
+});
+
+// ============================================================
 // DECIMAL NULL 처리
 // ============================================================
 
