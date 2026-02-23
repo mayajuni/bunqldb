@@ -1,0 +1,3 @@
+{"timestamp":"2026-02-23T08:50:13.438Z","type":"watcher_start","cwd":"/Users/mayajuni/Projects/dan/bunqldb","notify_script":"/Users/mayajuni/.nvm/versions/node/v22.18.0/lib/node_modules/oh-my-codex/scripts/notify-hook.js","poll_ms":700,"once":false}
+{"timestamp":"2026-02-23T08:50:19.249Z","type":"watcher_stop","signal":"SIGTERM"}
+{"timestamp":"2026-02-23T08:50:19.268Z","type":"watcher_start","cwd":"/Users/mayajuni/Projects/dan/bunqldb","notify_script":"/Users/mayajuni/.nvm/versions/node/v22.18.0/lib/node_modules/oh-my-codex/scripts/notify-hook.js","poll_ms":700,"once":false}
