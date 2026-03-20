@@ -51,8 +51,9 @@ function tryDecodeByteObject(value: object): string | undefined {
 
   // 모든 키가 연속된 숫자 인덱스("0","1","2",...)이고, 값이 0~127 범위 정수인지 확인
   for (let i = 0; i < keys.length; i++) {
-    if (keys[i] !== String(i)) return undefined;
-    const v = obj[keys[i]];
+    const key = keys[i];
+    if (key === undefined || key !== String(i)) return undefined;
+    const v = obj[key];
     if (typeof v !== "number" || !Number.isInteger(v) || v < 0 || v > 127) {
       return undefined;
     }
