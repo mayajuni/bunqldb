@@ -147,11 +147,11 @@ if (status) {
 | `DB.insert(query)` | `number` | INSERT 후 생성된 ID 반환 |
 | `DB.update(query)` | `number` | UPDATE 후 영향받은 행 수 반환 |
 | `DB.delete(query)` | `number` | DELETE 후 영향받은 행 수 반환 |
-| `DB.paginate<T>(query, options)` | `{ data: T[], totalRow: number }` | offset 기반 페이지네이션 |
+| `DB.paginate<T>(query, options, orderBy?)` | `{ data: T[], totalRow: number }` | offset 기반 페이지네이션 |
 | `DB.cursorPaginate<T>(query, options)` | `{ data: T[], nextCursor }` | 커서 기반 페이지네이션 |
 | `DB.bidirectionalCursorPaginate<T>(query, options)` | `{ data: T[], nextCursor, prevCursor }` | 양방향 커서 페이지네이션 |
-| `DB.manyPaging<T>(limit, start, query)` | `{ data: T[], totalRow: number }` | limit/offset 기반 페이징 (레거시) |
-| `DB.manyPagingParams<T>(params, query)` | `{ data: T[], totalRow: number }` | params 객체 기반 페이징 (레거시) |
+| `DB.manyPaging<T>(limit, start, query, orderBy?)` | `{ data: T[], totalRow: number }` | limit/offset 기반 페이징 (레거시) |
+| `DB.manyPagingParams<T>(params, query, orderBy?)` | `{ data: T[], totalRow: number }` | params 객체 기반 페이징 (레거시) |
 | `DB.close()` | `void` | 데이터베이스 연결 종료 |
 
 ### 기본 CRUD 메서드
@@ -225,15 +225,27 @@ const id = await DB.insert(sql`INSERT INTO users ...`, { logging: false });
 ```typescript
 // offset 기반 페이징
 const result = await DB.paginate<User>(
-  sql`SELECT * FROM users WHERE status = ${'active'} ORDER BY seq DESC`,
-  { page: 1, row: 10 }
+  sql`SELECT * FROM users WHERE status = ${'active'}`,
+  { page: 1, row: 10 },
+  sql`ORDER BY seq DESC`
 );
 // 반환: { data: User[], totalRow: number }
 
+// 별도 orderBy는 데이터 쿼리에만 적용되고 COUNT 쿼리에서는 제외됩니다.
+// orderBy를 생략하면 기존처럼 query에 포함된 ORDER BY가 그대로 사용됩니다.
+
 // row=0이면 전체 조회
 const all = await DB.paginate<User>(
-  sql`SELECT * FROM users ORDER BY seq`,
-  { page: 1, row: 0 }
+  sql`SELECT * FROM users`,
+  { page: 1, row: 0 },
+  sql`ORDER BY seq`
+);
+
+// 레거시 params 기반 페이징도 동일하게 별도 정렬을 지원
+const legacy = await DB.manyPagingParams<User>(
+  { page: 1, row: 10 },
+  sql`SELECT * FROM users WHERE status = ${'active'}`,
+  sql`ORDER BY seq DESC`
 );
 
 // 커서 기반 페이징

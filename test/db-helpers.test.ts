@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from 'bun:test';
-import { DB, getDbType, sql } from '../src';
+import { DB, getDbType, orderBy, sql } from '../src';
 
 // ============================================================
 // 테스트 테이블 설정
@@ -366,6 +366,93 @@ describe('DB.paginate()', () => {
 
     expect(result.data).toHaveLength(25);
     expect(result.totalRow).toBe(25);
+  });
+
+  test('별도 orderBy는 데이터 쿼리에만 적용되어야 한다', async () => {
+    const result = await DB.paginate<{ seq: number; name: string }>(
+      sql`SELECT * FROM ${sql(TEST_TABLE)}`,
+      { page: 2, row: 5 },
+      sql`ORDER BY seq DESC`,
+    );
+
+    expect(result.totalRow).toBe(25);
+    expect(result.data.map((item) => item.seq)).toEqual([20, 19, 18, 17, 16]);
+  });
+
+  test('row가 0이어도 별도 orderBy를 적용해 전체 조회해야 한다', async () => {
+    const result = await DB.paginate<{ seq: number; name: string }>(
+      sql`SELECT * FROM ${sql(TEST_TABLE)}`,
+      { page: 1, row: 0 },
+      sql`ORDER BY seq DESC`,
+    );
+
+    expect(result.totalRow).toBe(25);
+    expect(result.data).toHaveLength(25);
+    expect(result.data[0]?.seq).toBe(25);
+    expect(result.data[24]?.seq).toBe(1);
+  });
+});
+
+// ============================================================
+// DB.manyPaging() 별도 정렬 테스트
+// ============================================================
+
+describe('DB.manyPaging() 별도 orderBy', () => {
+  beforeAll(async () => {
+    await clearTestData();
+    await insertTestData(25);
+  });
+
+  test('별도 orderBy는 데이터 쿼리에 적용되어야 한다', async () => {
+    const result = await DB.manyPaging<{ seq: number; name: string }>(
+      5,
+      0,
+      sql`SELECT * FROM ${sql(TEST_TABLE)}`,
+      orderBy('seq', 'DESC'),
+    );
+
+    expect(result.totalRow).toBe(25);
+    expect(result.data.map((item) => item.seq)).toEqual([25, 24, 23, 22, 21]);
+  });
+});
+
+// ============================================================
+// DB.manyPagingParams() 별도 정렬 테스트
+// ============================================================
+
+describe('DB.manyPagingParams() 별도 orderBy', () => {
+  beforeAll(async () => {
+    await clearTestData();
+    await insertTestData(25);
+  });
+
+  test('페이징 시 별도 orderBy를 manyPaging에 전달해야 한다', async () => {
+    const result = await DB.manyPagingParams<{
+      seq: number;
+      name: string;
+      pagingIndex: number;
+    }>(
+      { page: 2, row: 5 },
+      sql`SELECT * FROM ${sql(TEST_TABLE)}`,
+      sql`ORDER BY seq DESC`,
+    );
+
+    expect(result.totalRow).toBe(25);
+    expect(result.data.map((item) => item.seq)).toEqual([20, 19, 18, 17, 16]);
+    expect(result.data.map((item) => item.pagingIndex)).toEqual([20, 19, 18, 17, 16]);
+  });
+
+  test('페이징 파라미터가 없을 때도 별도 orderBy를 적용해야 한다', async () => {
+    const result = await DB.manyPagingParams<{ seq: number; name: string }>(
+      {},
+      sql`SELECT * FROM ${sql(TEST_TABLE)}`,
+      sql`ORDER BY seq DESC`,
+    );
+
+    expect(result.totalRow).toBe(25);
+    expect(result.data).toHaveLength(25);
+    expect(result.data[0]?.seq).toBe(25);
+    expect(result.data[24]?.seq).toBe(1);
   });
 });
 

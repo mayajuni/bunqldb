@@ -308,13 +308,20 @@ export class DB {
 
   /**
    * limit/offset 기반 페이지네이션 (기존 호환)
+   * orderBy를 별도로 전달하면 COUNT 쿼리에서는 제외하고 데이터 쿼리에만 적용합니다.
    * @example
-   * const result = await DB.manyPaging<User>(10, 0, sql`SELECT * FROM users WHERE 1=1`);
+   * const result = await DB.manyPaging<User>(
+   *   10,
+   *   0,
+   *   sql`SELECT * FROM users WHERE active = ${true}`,
+   *   sql`ORDER BY created_at DESC`
+   * );
    */
   static async manyPaging<T = any>(
     limit: number,
     start: number,
     query: Promise<Record<string, unknown>[]> | SQL,
+    orderBy?: Promise<Record<string, unknown>[]> | SQL,
   ): Promise<{
     data: T[];
     totalRow: number;
@@ -328,7 +335,9 @@ export class DB {
     const totalRow = Number(countResult[0]?.cnt ?? 0);
 
     // 데이터 쿼리
-    const dataQuery = bunSql`${query} LIMIT ${limit} OFFSET ${start}`;
+    const dataQuery = orderBy
+      ? bunSql`${query} ${orderBy} LIMIT ${limit} OFFSET ${start}`
+      : bunSql`${query} LIMIT ${limit} OFFSET ${start}`;
     const dataResult = await executeQuery(dataQuery);
     const data = toCamelCaseArray<T>(dataResult);
 
@@ -337,15 +346,18 @@ export class DB {
 
   /**
    * params 객체 기반 페이지네이션 (기존 호환)
+   * orderBy를 별도로 전달하면 COUNT 쿼리에서는 제외하고 데이터 쿼리에만 적용합니다.
    * @example
    * const result = await DB.manyPagingParams<User>(
    *   { page: 1, row: 10 },
-   *   sql`SELECT * FROM users WHERE 1=1`
+   *   sql`SELECT * FROM users WHERE active = ${true}`,
+   *   sql`ORDER BY created_at DESC`
    * );
    */
   static async manyPagingParams<T = any>(
     params: { row?: number | string; page?: number | string },
     query: Promise<Record<string, unknown>[]> | SQL,
+    orderBy?: Promise<Record<string, unknown>[]> | SQL,
   ): Promise<{
     data: T[];
     totalRow: number;
@@ -356,12 +368,13 @@ export class DB {
       params.page === undefined ||
       params.page === ''
     ) {
-      const data = await DB.many<T>(query);
+      const dataQuery = orderBy ? bunSql`${query} ${orderBy}` : query;
+      const data = await DB.many<T>(dataQuery);
       return { data, totalRow: data.length };
     }
 
     const start = (Number(params.page) - 1) * Number(params.row);
-    const paging = await DB.manyPaging<T>(Number(params.row), start, query);
+    const paging = await DB.manyPaging<T>(Number(params.row), start, query, orderBy);
 
     paging.data.forEach((item, index) => {
       (item as Record<string, unknown>).pagingIndex = paging.totalRow - start - index;
@@ -376,15 +389,18 @@ export class DB {
 
   /**
    * offset 기반 페이지네이션
+   * orderBy를 별도로 전달하면 COUNT 쿼리에서는 제외하고 데이터 쿼리에만 적용합니다.
    * @example
    * const result = await DB.paginate<User>(
    *   sql`SELECT * FROM users WHERE status = ${'active'}`,
-   *   { page: 1, row: 10 }
+   *   { page: 1, row: 10 },
+   *   sql`ORDER BY created_at DESC`
    * );
    */
   static async paginate<T = any>(
     baseQuery: Promise<Record<string, unknown>[]> | SQL,
     options: { page?: number | string; row?: number | string } = {},
+    orderBy?: Promise<Record<string, unknown>[]> | SQL,
   ): Promise<{
     data: T[];
     totalRow: number;
@@ -401,12 +417,15 @@ export class DB {
 
     // 전체 조회 (row가 0이면)
     if (row === 0) {
-      const dataResult = await executeQuery(baseQuery);
+      const dataQuery = orderBy ? bunSql`${baseQuery} ${orderBy}` : baseQuery;
+      const dataResult = await executeQuery(dataQuery);
       return { data: toCamelCaseArray<T>(dataResult), totalRow };
     }
 
     // 데이터 쿼리 (템플릿 리터럴 조합)
-    const dataQuery = bunSql`${baseQuery} LIMIT ${row} OFFSET ${offsetValue}`;
+    const dataQuery = orderBy
+      ? bunSql`${baseQuery} ${orderBy} LIMIT ${row} OFFSET ${offsetValue}`
+      : bunSql`${baseQuery} LIMIT ${row} OFFSET ${offsetValue}`;
     const dataResult = await executeQuery(dataQuery);
     const data = toCamelCaseArray<T>(dataResult);
 
