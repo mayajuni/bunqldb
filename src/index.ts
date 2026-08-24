@@ -1,7 +1,7 @@
 // Public API
 
 // Types
-export type { DbConfig, SqlLogger, SqlLoggingOptions } from "./types";
+export type { DbConfig, DbPoolConfig, SqlLogger, SqlLoggingOptions } from "./types";
 
 // Case converter helpers
 export {

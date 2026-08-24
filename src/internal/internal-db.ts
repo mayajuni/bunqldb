@@ -8,6 +8,7 @@ import {
 import {
   consoleLogger,
   type DbConfig,
+  type DbPoolConfig,
   type SqlLogger,
   type SqlLoggingOptions,
 } from "../types";
@@ -44,11 +45,14 @@ let sqlLoggingEnabled = false;
 let currentLogger: SqlLogger = consoleLogger;
 let dateStringsEnabled = false;
 
-// 연결 풀 설정
-const CONNECTION_POOL_CONFIG = {
+// 연결 풀 설정. configureDb({ pool }) 로 덮어쓸 수 있다 — 환경마다 알맞은 값이 달라서
+// 코드에 박아 두면 안 된다(원격 DB 는 연결 수립만으로 몇 초가 걸리기도 한다).
+const DEFAULT_CONNECTION_POOL_CONFIG = {
   max: 10, // 최대 연결 수
   idleTimeout: 30, // 유휴 연결 타임아웃 (초)
 };
+
+let poolConfig: DbPoolConfig = {};
 
 // DB 타입별 기본 포트
 const DEFAULT_PORTS: Record<DbType, number> = {
@@ -97,6 +101,13 @@ export function configureDb(config: DbConfig): void {
   }
   if (config.dateStrings !== undefined) {
     dateStringsEnabled = config.dateStrings;
+  }
+  if (config.pool !== undefined) {
+    poolConfig = config.pool;
+    // 이미 풀이 열려 있으면 새 설정으로 다시 연다. 그러지 않으면 설정이 조용히 무시된다.
+    if (baseSql) {
+      resetConnection();
+    }
   }
 }
 
@@ -378,8 +389,14 @@ export function getBaseSql(): SQL {
 
   const connectionOptions = {
     // 연결 풀 설정
-    max: CONNECTION_POOL_CONFIG.max,
-    idleTimeout: CONNECTION_POOL_CONFIG.idleTimeout,
+    max: poolConfig.max ?? DEFAULT_CONNECTION_POOL_CONFIG.max,
+    idleTimeout: poolConfig.idleTimeout ?? DEFAULT_CONNECTION_POOL_CONFIG.idleTimeout,
+    ...(poolConfig.connectionTimeout !== undefined
+      ? { connectionTimeout: poolConfig.connectionTimeout }
+      : {}),
+    ...(poolConfig.maxLifetime !== undefined
+      ? { maxLifetime: poolConfig.maxLifetime }
+      : {}),
     // 이벤트 핸들러 제거 (로그 노이즈 및 중복 재연결 방지)
     // Bun SQL이 내부적으로 연결 상태를 관리하도록 함
   };
@@ -503,6 +520,105 @@ function createLoggingProxy(
 }
 
 // ============================================================
+// 끊긴 연결 복구 (재시도)
+// ============================================================
+
+/**
+ * 연결이 죽어서 난 오류인가.
+ *
+ * TCP 가 FIN/RST 없이 침묵하면(노트북 절전·VPN 끊김·경로 장애) 소켓은 살아 있는 것처럼
+ * 보인다. 그래서 Bun 은 죽은 커넥션에 쿼리를 실어 보내고 타임아웃까지 기다린 뒤 실패한다.
+ * 유휴 시간을 조절해서 막을 수 있는 문제가 아니다 — 실측(2026-08-24)에서 35초를 놀려도,
+ * 서버가 커넥션을 끊어도(pg_terminate_backend) 재연결은 멀쩡했고, 오직 이 "침묵" 만 실패했다.
+ * 그리고 실패 직후 같은 쿼리를 다시 보내면 곧바로 성공한다. 그래서 여기서 한 번 되살린다.
+ */
+function isConnectionLostError(error: unknown): boolean {
+  const code = (error as { code?: unknown })?.code;
+  if (typeof code === "string" && CONNECTION_LOST_CODES.has(code)) {
+    return true;
+  }
+  // 드라이버가 코드를 안 붙이는 경로가 있어 문구도 함께 본다.
+  const message = (error as { message?: unknown })?.message;
+  return typeof message === "string" && CONNECTION_LOST_PATTERN.test(message);
+}
+
+const CONNECTION_LOST_CODES = new Set([
+  "ERR_POSTGRES_IDLE_TIMEOUT",
+  "ERR_POSTGRES_CONNECTION_TIMEOUT",
+  "ERR_POSTGRES_CONNECTION_CLOSED",
+  "ERR_POSTGRES_LIFETIME_TIMEOUT",
+  "ERR_MYSQL_IDLE_TIMEOUT",
+  "ERR_MYSQL_CONNECTION_TIMEOUT",
+  "ERR_MYSQL_CONNECTION_CLOSED",
+  "ERR_MYSQL_LIFETIME_TIMEOUT",
+]);
+
+const CONNECTION_LOST_PATTERN =
+  /(idle timeout|connection timeout|connection closed|connection ended|socket hang up|ECONNRESET|EPIPE)/i;
+
+/**
+ * 재시도해도 되는 쿼리인가.
+ *
+ * **읽기만 되살린다.** 연결이 끊긴 자리에서는 쿼리가 서버에 닿기 전에 죽었는지, 닿아서
+ * 실행된 뒤 응답만 못 받았는지 구분할 수 없다. 쓰기를 다시 보내면 두 번 들어갈 수 있다 —
+ * 조회가 한 번 실패하는 것보다 결제가 두 번 되는 쪽이 훨씬 나쁘다.
+ *
+ * 트랜잭션 안에서도 하지 않는다. 그 커넥션이 죽었다면 트랜잭션은 이미 롤백된 것이라,
+ * 한 문장만 새 연결에서 다시 실행하면 반쪽짜리 결과가 남는다.
+ */
+function isRetryableRead(argArray: unknown[]): boolean {
+  if (getTx()) return false;
+
+  const first = argArray[0] as { raw?: unknown; [index: number]: unknown } | undefined;
+  const isTemplateCall =
+    !!first && typeof first === "object" && "raw" in first && typeof first[0] === "string";
+  if (!isTemplateCall) return false;
+
+  return /^\s*select\b/i.test(first[0] as string);
+}
+
+/** 동시에 실패한 요청들이 저마다 풀을 닫아 대는 것을 막는다. */
+let lastReconnectAt = 0;
+const RECONNECT_COOLDOWN_MS = 1000;
+
+function reconnectOnce(): void {
+  const now = Date.now();
+  if (now - lastReconnectAt < RECONNECT_COOLDOWN_MS) return;
+  lastReconnectAt = now;
+  resetConnection();
+}
+
+/**
+ * 연결이 끊겨 실패하면 풀을 새로 열고 **한 번만** 다시 실행한다.
+ *
+ * 쿼리 객체는 await 하는 시점에 실행되는 thenable 이라, 재실행은 `make()` 로 새로 만든다.
+ * `then` 외의 속성(`.values()`, `.raw()`, SQL 조합 등)은 원본에 그대로 넘긴다.
+ */
+function withConnectionRetry<T extends object>(make: () => T): T {
+  const first = make();
+
+  return new Proxy(first, {
+    get(target, prop, receiver) {
+      if (prop !== "then") {
+        return Reflect.get(target, prop, receiver);
+      }
+
+      return (onFulfilled?: unknown, onRejected?: unknown) =>
+        Promise.resolve(target as unknown as Promise<unknown>)
+          .catch((error) => {
+            if (!isConnectionLostError(error)) throw error;
+            reconnectOnce();
+            return make() as unknown as Promise<unknown>;
+          })
+          .then(
+            onFulfilled as (value: unknown) => unknown,
+            onRejected as (reason: unknown) => unknown
+          );
+    },
+  });
+}
+
+// ============================================================
 // SQL Proxy 로깅 모드
 // ============================================================
 
@@ -518,11 +634,13 @@ function createSqlProxyWithMode(mode: LoggingMode): SQL {
   };
   return new Proxy(noop as unknown as SQL, {
     apply(_target, _thisArg, argArray) {
-      const tx = getTx();
-      const currentSql = tx || getBaseSql();
-
-      // 원래 SQL 결과 생성
-      const result = (currentSql as any)(...argArray);
+      // 원래 SQL 결과 생성.
+      // 트랜잭션 밖의 읽기만, 연결이 끊겼을 때 새 연결로 한 번 되살린다.
+      const makeQuery = () => {
+        const currentSql = getTx() || getBaseSql();
+        return (currentSql as any)(...argArray);
+      };
+      const result = isRetryableRead(argArray) ? withConnectionRetry(makeQuery) : makeQuery();
 
       // 로깅 모드에 따른 처리
       // silent: 항상 로깅 스킵
