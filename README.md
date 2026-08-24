@@ -18,6 +18,8 @@ bun add bunqldb
 - **자동 camelCase 변환**: snake_case 컬럼을 camelCase로 자동 변환
 - **dateStrings 옵션**: Date 객체를 MySQL 형식 문자열로 반환 가능
 - **자동 재연결**: DB 서버 재기동 시 자동으로 재연결 시도
+- **끊긴 연결 복구**: TCP 가 조용히 죽어도(절전·VPN 끊김) 읽기 쿼리는 새 연결로 한 번 되살림
+- **연결 풀 설정**: `configureDb({ pool })` 로 `max`·`idleTimeout` 등을 환경에 맞게 조정
 
 ---
 
